@@ -1,0 +1,61 @@
+// Definitions for the retail model
+
+source: users_base is duckdb.table('data/users.parquet') extend {
+  primary_key: user_id
+  measure:
+    user_count is count()
+    average_age is age.avg()
+  dimension: 
+    name is concat(first_name, ' ', last_name)
+}
+
+source: products_base is duckdb.table('data/products.parquet') extend {
+  primary_key: product_id
+  measure: 
+    product_count is count()
+    brand_count is brand.count()
+    category_count is category.count()
+}
+
+source: inventory_items_base is duckdb.table('data/inventory_items.parquet') extend {
+  primary_key: inventory_item_id
+  measure: 
+    inventory_item_count is count()
+    total_cost is cost.sum()
+}
+
+source: orders_base is duckdb.table('data/orders.parquet') extend {
+  primary_key: order_id
+  measure: 
+    order_count is count()
+  query: by_status is {
+    group_by: status
+    aggregate: order_count
+  }
+}
+
+source: items_base is duckdb.table('data/order_items.parquet') extend {
+  primary_key: item_id
+  measure: 
+    item_count is count()
+    total_revenue is sale_price.sum()
+    # percent
+    percent_of_revenue is total_revenue/all(total_revenue)
+}
+
+source: orders is orders_base extend {
+  join_one: users is users_base with user_id
+  join_many: items is items_base extend {
+    join_one: products is products_base with product_id
+    join_one: ii is inventory_items_base with inventory_item_id
+  } on order_id = items.order_id
+
+  measure: 
+    total_revenue is items.total_revenue
+    user_count is count(user_id)
+    # percent
+    percent_of_revenue is total_revenue/all(total_revenue)
+    # percent
+    percent_of_users is user_count/all(user_count)
+
+}

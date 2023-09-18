@@ -1,0 +1,181 @@
+>>>markdown
+# Order Sequence
+Buying patterns can sometimes be determined by order sequences. Order Sequence can help you answer questions  like:
+
+**Repeat Customers**: How much revenue is coming from repeat business?
+
+**Repeat Customers Over Time** - are we getting better at getting customers to buy again?
+
+**Common First Item:** What is the most commonly purchased on the first interaction?
+
+**Poison First Item:** Is there something that is purchased first that makes it less likely that customers will repeat purchase.
+
+**Repeat Customer Cohorts** Is there some particular attribute that makes a customer more likely to be a repeat customer?
+>>>malloy
+import 'retail.malloy' 
+
+// This should be equivalent to the query below?  Why isn't it?
+// 
+// query: order_sequence is orders_base -> {
+//   group_by: user_id
+//   aggregate: lifetime_purchases is count()
+//   nest: by_order is {
+//     group_by: order_id, created_at
+//     order_by: created_at
+//     calculate: user_sequence is row_number() 
+//   }
+// }
+// -> {
+//   project: by_order.order_id, by_order.user_sequence, lifetime_purchases
+// }
+
+query: order_sequence2 is duckdb.sql("""
+  SELECT 
+    user_id, 
+    order_id, 
+    row_number() OVER (PARTITION BY user_id ORDER BY created_at) as user_sequence,
+    count(*) over (PARTITION BY user_id) as lifetime_purchases
+  FROM 'data/orders.parquet'
+  order by user_id
+""")
+
+source: orders2 is orders extend {
+  join_one: os is order_sequence2 on order_id = os.order_id
+  dimension:
+    user_sequence is os.user_sequence
+    user_lifetime_purcahses is os.lifetime_purchases
+    is_first_order is user_sequence = 1
+  measure:
+    user_count_single is user_count {where: user_lifetime_purcahses = 1}
+    user_count_multi is user_count {where: user_lifetime_purcahses > 1}
+    # percent
+    percent_user_multi is user_count_multi/user_count
+}
+>>>markdown
+### **Repeat Customers**: How much revenue is coming from repeat business?
+It looks like about 1/2 our revenue comes from people's first order.  Only 48.77% of people have a second order (or more). 
+>>>malloy
+run: orders2 -> {
+  group_by: user_sequence
+  aggregate: 
+    total_revenue
+    percent_of_revenue
+    order_count
+    user_count
+    user_count_multi
+    percent_of_users
+}
+>>>markdown
+### **Repeat Customers Over Time** - are we getting better at getting customers to buy again?
+>>>malloy
+# line_chart
+run: orders2 -> {
+  group_by: order_month is created_at.month
+  aggregate: 
+    percent_user_multi
+}
+>>>markdown
+### **Common First Item:** What is the most commonly purchased on the first interaction?
+The is generated data, so we don't see much difference, but in the real world, we would expect to see one or more of the categories exhibiting an over representation in first orders relative to non-first orders...
+>>>malloy
+run: orders2 -> {
+  extend: {
+    measure:
+      total_revenue_first_order is total_revenue {where: is_first_order}
+  }
+  group_by: items.products.category
+  aggregate:
+    total_revenue_first_order
+    total_revenue
+    # percent
+    percent_first_order is total_revenue_first_order/total_revenue
+  order_by: percent_first_order desc
+}
+>>>markdown
+### **Poison First Item:** Is there something that is purchased first that makes it less likely that they will repeat purchase.
+
+We first build a map of users and their first products.  An order may contain multiple products.  We then group all orders by the first product and count the number of users that have an order which is not the first order and show that as a percentage.
+>>>malloy
+// list of first items by user.
+query: user_first_product_map is orders2 -> {
+  project: user_id, items.product_id
+  where: is_first_order
+}
+
+run: orders2 -> {
+  extend: {
+    join_many: map is from(user_first_product_map) extend {
+      join_one: products is products_base with product_id
+    } on user_id = map.user_id
+  }
+  group_by: first_product_category is map.products.category
+  aggregate:
+    user_count
+    user_count_multi 
+    percent_user_multi
+    order_by: percent_user_multi
+    nest: by_brand is {
+      group_by: first_product_brand is map.products.brand
+      aggregate:
+        user_count
+        user_count_multi 
+        percent_user_multi
+      order_by: percent_user_multi
+        limit: 5
+        having: user_count > 10
+    }
+}
+>>>markdown
+### **Repeat Customer Cohorts** Is there some particular attribute that makes a customer more likely to be a repeat customer?
+>>>malloy
+# dashboard
+run: orders2 -> {
+  # shape_map
+  nest: by_state is {
+    group_by: users.state 
+    aggregate: 
+      percent_user_multi
+      user_count
+    having: user_count > 200
+  }
+  nest: by_gender is {
+    group_by: users.gender
+    aggregate: 
+      percent_user_multi
+      user_count
+    having: user_count > 200
+  }
+  nest: by_country is {
+    group_by: users.country
+    aggregate: 
+      percent_user_multi
+      user_count
+    having: user_count > 200
+  }
+  nest: by_traffics_source is {
+    group_by: users.traffic_source
+    aggregate: 
+      percent_user_multi
+      user_count
+    having: user_count > 200
+  }
+}
+
+// Ideally, we could write the query above like the one below...
+//
+// # dashboard
+// run: orders2 -> {
+//   extend: {
+//     query: measures is {
+//       aggregate: 
+//       percent_user_multi
+//       user_count
+//     having: user_count > 200
+//     }
+//   }
+//   # shape_map
+//   nest: by_state is {group_by: users.state} + measures
+//   nest: by_gender is {group_by: users.gender} + measures
+//   nest: by_country is {group_by: users.country} + measures
+//   nest: by_traffics_source is {group_by: users.traffic_source} + measures
+// }
