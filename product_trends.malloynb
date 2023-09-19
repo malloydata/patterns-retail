@@ -1,0 +1,73 @@
+>>>markdown
+# Product Trend Analysis
+**Product Category Mix** - Has our product mix changed since last year?
+**Categories and Brands** Within each category, what is the trend over time and within each brand? 
+
+Data is simulated so we set some boolean dimensions for `this_year` and `last_year` and build up some measures we'll use throughout the analysis.  We create a couple of charts we'll reuse.
+>>>malloy
+import 'retail.malloy'
+source: order_trends is orders extend {
+  dimension: 
+    is_this_year is created_at = @2022
+    is_last_year is created_at = @2021
+    two_years is created_at >= @2021
+
+  # format="###,###"
+  measure:
+    revenue_this_year is total_revenue {where: is_this_year}
+    revenue_last_year is total_revenue {where: is_last_year}
+    
+  # percent
+  measure:
+    revenue_this_year_as_percent_of_all_sales is revenue_this_year/all(revenue_this_year)
+    revenue_last_year_as_percent_of_all_sales is revenue_last_year/all(revenue_last_year)
+
+  # line_chart
+  query: revenue_by_month is {
+    group_by: `month` is month(created_at)
+    where: two_years
+    aggregate: total_revenue
+    group_by: `year` is year(created_at)::string
+  }
+  # sparkline
+  query: sparkline is {
+    group_by: created_at.month
+    where: two_years
+    aggregate: total_revenue
+  }
+}
+>>>markdown
+### **Product Category Mix** - Has our product mix changed since last year?
+This is simulated data so we're not seeing any real differences, but using this technique we can see easily see changes over time.
+>>>malloy
+run: order_trends -> {
+  group_by: items.products.category
+  aggregate:
+    revenue_this_year
+    revenue_this_year_as_percent_of_all_sales
+    revenue_last_year
+    revenue_last_year_as_percent_of_all_sales
+    # percent
+    delta is revenue_this_year_as_percent_of_all_sales - revenue_last_year_as_percent_of_all_sales
+}
+>>>markdown
+### **Categories and Brands** Within each category, what is the trend over time and within each brand?
+Again, this is simulated data, so not very interesting, but could easily be used to spot trends.
+>>>malloy
+# dashboard
+run: order_trends -> {
+  # line_chart
+  nest: revenue_by_month
+  # dashboard
+  nest: category is {
+    group_by: items.products.category
+    aggregate: total_revenue
+    nest: revenue_by_month
+    nest: top_brands is {
+      group_by: items.products.brand
+      aggregate: total_revenue
+      nest: sparkline
+      limit: 5
+    }
+  }
+}

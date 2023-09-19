@@ -35,7 +35,7 @@ query: order_sequence2 is duckdb.sql("""
     order_id, 
     row_number() OVER (PARTITION BY user_id ORDER BY created_at) as user_sequence,
     count(*) over (PARTITION BY user_id) as lifetime_purchases
-  FROM 'data/orders.parquet'
+  FROM 'data/orders.parquet' 
   order by user_id
 """)
 
@@ -164,13 +164,13 @@ run: orders2 -> {
 // Ideally, we could write the query above like the one below...
 //
 // # dashboard
-// run: orders2 -> {
+// run: orders -> {
 //   extend: {
 //     query: measures is {
 //       aggregate: 
-//       percent_user_multi
-//       user_count
-//     having: user_count > 200
+//         percent_user_multi
+//         user_count
+//       having: user_count > 200
 //     }
 //   }
 //   # shape_map

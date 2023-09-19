@@ -57,5 +57,4 @@ source: orders is orders_base extend {
     percent_of_revenue is total_revenue/all(total_revenue)
     # percent
     percent_of_users is user_count/all(user_count)
-
 }
